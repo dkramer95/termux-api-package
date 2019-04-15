@@ -1,0 +1,91 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# set -e -u
+
+SCRIPTNAME=termux-beam
+
+HELP_FLAG=1
+TEXT_FLAG=2
+FILE_FLAG=4
+FLAGS=0
+
+show_usage () {
+    echo "Usage: $SCRIPTNAME [-hv][-c][-t text][-n name] file"
+    echo "Use Android Beam to share (small) files / text with nearby device over NFC"
+    echo "Options:"
+    echo "-h help          Show this help"
+    echo "-v verbose-help  Show detailed usage information"
+    echo "-c compress      Use GZIP compression (lossless)"
+    echo "-t text          Send custom text instead (cannot use w/ file arg)"
+    echo "-n name          Set name of file for receiving device"
+    echo ""
+    set_flag $HELP_FLAG
+}
+
+show_verbose_usage () {
+    echo "$SCRIPTNAME:"
+    echo "Important Notes:"
+    echo "  * Requires an ADDITIONAL device (in close proximity to this device) to receive what you send"
+    echo "  * BOTH devices (at time of beam) must have NFC and Android Beam enabled AND be awake and unlocked"
+    echo "    -- Only sending device will be prompted to enable (if either is disabled)"
+    echo "  * This script needs to be called (on sending device only) prior to performing beam (dialog will show), otherwise the default beam operation will occur which is most likely undesired"
+    echo "  * Once receiving device is in close proximity (and \"Touch to Beam\" appears), you must tap screen of sending device to beam data"
+    echo "  * Receiving device does NOT have to have the main Termux app running"
+    echo ""
+    echo "Limitations:"
+    echo "  * You can only send 1 file at a time"
+    echo "  * Size of file must be very small (< 1 MB) or it CANNOT be transferred. [Using -c (compression) option MAY help to an extent but not guaranteed]"
+    echo "  * Works best w/ text files that are easily compressed"
+    echo "  * Files larger than 100KB may take longer to send (devices must remain in contact until transfer is complete)"
+    echo "  * Not recommended for use w/ media files (images / music / video) unless they're really small"
+    echo ""
+    set_flag $HELP_FLAG
+}
+
+set_flag () {
+    FLAGS=$((FLAGS | $1))
+    echo "flag set $1"
+}
+
+call_api () {
+    /data/data/com.termux/files/usr/libexec/termux-api Beam "$@"
+}
+
+PARAMS=()
+while getopts :h,v,c,t:,n: option
+do
+    case "$option" in
+        h) show_usage ;;
+        v) show_verbose_usage ;;
+        c) PARAMS+=(--ez compress true) ;;
+        t) set_flag $TEXT_FLAG; PARAMS+=(--es text "$OPTARG") ;;
+        n) PARAMS+=(--es name "$OPTARG") ;;
+        ?) echo "$SCRIPTNAME: illegal option -$OPTARG"; exit 1;
+    esac
+done
+shift $(($OPTIND-1))
+
+# Showing help, don't call API
+if [ $((FLAGS & HELP_FLAG)) -ne 0 ]; then
+    exit 0
+fi
+
+# Cannot have file arg if using text
+if [ $((FLAGS & TEXT_FLAG)) -ne 0 ]; then
+    if [ $# -gt 0 ]; then
+        echo "$SCRIPTNAME: cannot use file param when using [-t text] option"
+        exit 1
+    fi
+elif [ $# -eq 0 ]; then
+    echo "$SCRIPTNAME: missing argument"
+    show_usage
+    exit 1
+elif [ $# -gt 1 ]; then
+    echo "$SCRIPTNAME: too many arguments"
+    exit 1
+else
+    # We received a file
+    PARAMS+=(--es file "`realpath "$1"`")
+fi
+
+echo "${PARAMS[@]}"
+call_api  "${PARAMS[@]}"
